@@ -1,4 +1,4 @@
-// frequency transform examples.
+// Simple Frequency Transform example.
 
 // FHT defines.  This library defines an input buffer for us called fht_input of signed integers.  
 #define LIN_OUT 1
@@ -18,28 +18,6 @@ int sample[SAMPLE_SIZE] = {0};
 // We have half the number of frequency bins as samples.
 #define FREQ_BINS (SAMPLE_SIZE/2)
 
-void setupADC( void )
-{
-
-   // MATH ...in measurements, it looks like prescalar of 32 gives me sample freq of 40 KHz
-   //    on the UNO.  Same on mega.  Hmmm...
-   // Prescalar of 128 gives 9 KHz sample rate.
-   // Prescalar of 64 gives 14 KHz.  
-   // Prescalar of 32 gives 22 KHz
-   // prescalar of 16 gives 52-66.
-
-   
-    ADCSRA = 0b11100101;      // set ADC to free running mode and set pre-scalar to 32 (0xe5)
-                              // pre-scalar 32 should give sample frequency of 38.64 KHz...which
-                              // will reproduce samples up to 19.32 KHz
-
-    // A5, internal reference.
-    ADMUX =  0b00000101;
-
-    delay(50);  //wait for voltages to stabalize.  
-
-}
-
 // This function fills our buffer with audio samples.
 unsigned long collect_samples( void )
 {
@@ -51,37 +29,13 @@ unsigned long collect_samples( void )
   
   for (i = 0; i < SAMPLE_SIZE; i++)
   {
-    #ifdef BIT_BANG_ADC
-    while(!(ADCSRA & 0x10));        // wait for ADC to complete current conversion ie ADIF bit set
-    ADCSRA = ADCSRA | 0x10;        // clear ADIF bit so that ADC can do next operation (0xf5)
-    sample[i] = ADC;
-    #else
     sample[i] = analogRead(AUDIO_PIN);
-    #endif
   }
 
   end_time = micros();
 
   return (end_time - start_time);
   
-}
-
-int calc_dc_bias( void )
-{
-  int i;
-  unsigned long total=0;
-  unsigned long dc_bias;
-
-  for (i = 0; i < SAMPLE_SIZE; i++)
-  {
-    total = total + sample[i];
-  }
-
-  dc_bias = total / SAMPLE_SIZE;
-
-  if (dc_bias > 1023) Serial.println("*****  DC BIAS OVERFLOW!!!!  *****");
-
-  return dc_bias;
 }
 
 // This function does the FHT to convert the time-based samples (in the sample[] array)
@@ -111,45 +65,14 @@ void doFHT( void )
   fht_mag_lin();  
 }
 
-void glenn_dc_bias_FHT( int dc_bias )
-{
-  int i;
-  int temp_sample;
-  
-  for (i=0; i < SAMPLE_SIZE; i++)
-  {
-    // Remove DC bias
-    temp_sample = sample[i] - dc_bias;
-
-    // Load the sample into the input array
-    fht_input[i] = temp_sample;
-    
-  }
-  
-  fht_window();
-  fht_reorder();
-  fht_run();
-
-  // Their lin mag functons corrupt memory!!!  Gonna try this for the 32 point one...we may be okay.
-  fht_mag_lin();  
-}
-
 void setup() 
 {
-
-  Serial.begin(9600);
-
-  #ifdef BIT_BANG_ADC
-  setupADC();
-  #endif
-  
+  Serial.begin(9600);  
 }
 
 void print_time_samples( unsigned long sample_time )
 {
   int i;
-  unsigned long total = 0;
-  
 
   Serial.print("Time to collect samples: ");
   Serial.print(sample_time);
@@ -160,33 +83,28 @@ void print_time_samples( unsigned long sample_time )
   Serial.println("Raw Samples:");
   for (i=0; i<SAMPLE_SIZE; i++)
   {
-    total = total + sample[i];
     Serial.println(sample[i]);
   }
-
-  Serial.print("==>DC Bias: ");
-  Serial.println(total / SAMPLE_SIZE);
-  Serial.println("------------");
 }
 
-void print_freq( float freq_range_khz )
+void print_freq( float freq_range_hz )
 {
   int i;
   float bin=0.0;
-  float khz_per_bin;
+  float hz_per_bin;
 
-  khz_per_bin = freq_range_khz / FREQ_BINS;
+  hz_per_bin = freq_range_hz / FREQ_BINS;
 
   Serial.print("Freq results: (");
-  Serial.print(freq_range_khz);
-  Serial.println(" KHz wide)");
+  Serial.print(freq_range_hz);
+  Serial.println(" Hz wide)");
   
   for (i=0; i< FREQ_BINS; i++)
   {
     Serial.print(bin);
-    Serial.print(" KHz = ");
+    Serial.print(" Hz = ");
     Serial.println(fht_lin_out[i]);
-    bin = bin + khz_per_bin;
+    bin = bin + hz_per_bin;
   }
   Serial.println("=========");
 }
@@ -196,38 +114,28 @@ void loop()
   float         hz_per_bin;
   float         us_per_sample;
   float         freq_range_hz;
-  float         freq_range_khz;
   unsigned long sample_time_us;
   int           dc_bias;
   
   sample_time_us = collect_samples();
 
-  Serial.print("*** sample_time_us: ");
-  Serial.println(sample_time_us);
-
   us_per_sample = (float) sample_time_us / SAMPLE_SIZE;
 
-  Serial.print("*** us_per_sample: ");
-  Serial.println(us_per_sample);
-  
+  // The frequency transform below takes our samples and outputs them in an array of "frequency bins".
+  // This array is half the size of our input sample rate, so for 32 samples, we have 16 bins.
+  // These bins range from 0 Hz to half of our sample rate (Nyquist's theorm).
+  // We're going to calculate that range and the bin size next.
+
+  //  us_per_sample is in microseconds (10^-6).  Move that 10^-6 to the numerator, and you get the 1000000.
+  //  The 2.0 in the denominator is because our range is half the sample rate.
   freq_range_hz = 1000000.0 /(2.0 * us_per_sample);
-  freq_range_khz = freq_range_hz / 1000;
-  
-  Serial.print("*** freq_range_hz: ");
-  Serial.println(freq_range_hz);
-  
+    
   // do the FHT to populate our frequency display
   doFHT();
 
   // ...and display the results.
   print_time_samples(sample_time_us);
-  print_freq(freq_range_khz);
-
-  dc_bias = calc_dc_bias();
-
-  glenn_dc_bias_FHT(dc_bias);
-  Serial.println("Glenn DC BIAS adjusted");
-  print_freq(freq_range_khz);
+  print_freq(freq_range_hz);
 
   // wait for a key for next iteration through the loop
   Serial.println("hit enter for next sample collection");
