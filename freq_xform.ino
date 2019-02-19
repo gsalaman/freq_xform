@@ -1,8 +1,9 @@
 // frequency transform examples.
+// Bit banging ADC
 
 // FHT defines.  This library defines an input buffer for us called fht_input of signed integers.  
 #define LIN_OUT 1
-#define FHT_N   32
+#define FHT_N   64
 #include <FHT.h>
 
 //  We're using A5 as our audio input pin.
@@ -21,17 +22,13 @@ int sample[SAMPLE_SIZE] = {0};
 void setupADC( void )
 {
 
-   // MATH ...in measurements, it looks like prescalar of 32 gives me sample freq of 40 KHz
-   //    on the UNO.  Same on mega.  Hmmm...
-   // Prescalar of 128 gives 9 KHz sample rate.
-   // Prescalar of 64 gives 14 KHz.  
-   // Prescalar of 32 gives 22 KHz
-   // prescalar of 16 gives 52-66.
-
+   // Prescalar is the last 3 bits of the ADCSRA register.  
+   // Here are my measured sample rates (and resultant frequency ranges):
+   // Prescalar of 128 gives ~10 KHz sample rate (5 KHz range)    mask  111
+   // Prescalar of 64 gives ~20 KHz sample rate (10 KHz range)    mask: 110    
+   // Prescalar of 32 gives ~40 KHz sample rate (20 KHz range)    mask: 101
    
-    ADCSRA = 0b11100101;      // set ADC to free running mode and set pre-scalar to 32 (0xe5)
-                              // pre-scalar 32 should give sample frequency of 38.64 KHz...which
-                              // will reproduce samples up to 19.32 KHz
+    ADCSRA = 0b11100111;      // Upper bits set ADC to free-running mode.
 
     // A5, internal reference.
     ADMUX =  0b00000101;
@@ -51,13 +48,9 @@ unsigned long collect_samples( void )
   
   for (i = 0; i < SAMPLE_SIZE; i++)
   {
-    #ifdef BIT_BANG_ADC
     while(!(ADCSRA & 0x10));        // wait for ADC to complete current conversion ie ADIF bit set
     ADCSRA = ADCSRA | 0x10;        // clear ADIF bit so that ADC can do next operation (0xf5)
     sample[i] = ADC;
-    #else
-    sample[i] = analogRead(AUDIO_PIN);
-    #endif
   }
 
   end_time = micros();
@@ -139,9 +132,7 @@ void setup()
 
   Serial.begin(9600);
 
-  #ifdef BIT_BANG_ADC
   setupADC();
-  #endif
   
 }
 
@@ -169,24 +160,24 @@ void print_time_samples( unsigned long sample_time )
   Serial.println("------------");
 }
 
-void print_freq( float freq_range_khz )
+void print_freq( float freq_range_hz )
 {
   int i;
   float bin=0.0;
-  float khz_per_bin;
+  float hz_per_bin;
 
-  khz_per_bin = freq_range_khz / FREQ_BINS;
+  hz_per_bin = freq_range_hz / FREQ_BINS;
 
   Serial.print("Freq results: (");
-  Serial.print(freq_range_khz);
-  Serial.println(" KHz wide)");
+  Serial.print(freq_range_hz);
+  Serial.println(" Hz wide)");
   
   for (i=0; i< FREQ_BINS; i++)
   {
     Serial.print(bin);
-    Serial.print(" KHz = ");
+    Serial.print(" Hz = ");
     Serial.println(fht_lin_out[i]);
-    bin = bin + khz_per_bin;
+    bin = bin + hz_per_bin;
   }
   Serial.println("=========");
 }
@@ -196,9 +187,10 @@ void loop()
   float         hz_per_bin;
   float         us_per_sample;
   float         freq_range_hz;
-  float         freq_range_khz;
   unsigned long sample_time_us;
   int           dc_bias;
+  unsigned long start_fft_us;
+  unsigned long end_fft_us;
   
   sample_time_us = collect_samples();
 
@@ -211,24 +203,28 @@ void loop()
   Serial.println(us_per_sample);
   
   freq_range_hz = 1000000.0 /(2.0 * us_per_sample);
-  freq_range_khz = freq_range_hz / 1000;
   
   Serial.print("*** freq_range_hz: ");
   Serial.println(freq_range_hz);
   
   // do the FHT to populate our frequency display
+  start_fft_us = micros();
   doFHT();
-
+  end_fft_us = micros();
+  
   // ...and display the results.
   print_time_samples(sample_time_us);
-  print_freq(freq_range_khz);
+  print_freq(freq_range_hz);
 
   dc_bias = calc_dc_bias();
 
   glenn_dc_bias_FHT(dc_bias);
   Serial.println("Glenn DC BIAS adjusted");
-  print_freq(freq_range_khz);
+  print_freq(freq_range_hz);
 
+  Serial.print("Time to calc FHT (us): ");
+  Serial.println(end_fft_us - start_fft_us);
+  
   // wait for a key for next iteration through the loop
   Serial.println("hit enter for next sample collection");
   while (!Serial.available());
