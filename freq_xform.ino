@@ -19,6 +19,8 @@ int sample[SAMPLE_SIZE] = {0};
 // We have half the number of frequency bins as samples.
 #define FREQ_BINS (SAMPLE_SIZE/2)
 
+#define BIT_BANG_ADC
+
 void setupADC( void )
 {
 
@@ -48,9 +50,13 @@ unsigned long collect_samples( void )
   
   for (i = 0; i < SAMPLE_SIZE; i++)
   {
+    #ifdef BIT_BANG_ADC
     while(!(ADCSRA & 0x10));        // wait for ADC to complete current conversion ie ADIF bit set
     ADCSRA = ADCSRA | 0x10;        // clear ADIF bit so that ADC can do next operation (0xf5)
     sample[i] = ADC;
+    #else
+    sample[i] = analogRead(AUDIO_PIN);
+    #endif
   }
 
   end_time = micros();
@@ -132,7 +138,9 @@ void setup()
 
   Serial.begin(9600);
 
+  #ifdef BIT_BANG_ADC
   setupADC();
+  #endif
   
 }
 
