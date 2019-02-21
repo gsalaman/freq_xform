@@ -18,6 +18,9 @@ int sample[SAMPLE_SIZE] = {0};
 // We have half the number of frequency bins as samples.
 #define FREQ_BINS (SAMPLE_SIZE/2)
 
+// This is where we'll store the peaks if we use Glenn's magitude calc.
+int freq_peaks[FREQ_BINS];
+
 // This function fills our buffer with audio samples.
 unsigned long collect_samples( void )
 {
@@ -61,8 +64,53 @@ void doFHT( void )
   fht_reorder();
   fht_run();
 
-  // Their lin mag functons corrupt memory!!!  Gonna try this for the 32 point one...we may be okay.
-  fht_mag_lin();  
+  // Their lin mag functons corrupt memory!!!  Use mine instead.
+  //fht_mag_lin();  
+  glenn_populate_freq(freq_peaks, FREQ_BINS);
+}
+
+// It looks like fht_mag_lin is corrupting memory.  Instead of debugging AVR assembly, 
+// I'm gonna code my own C version.  
+// I'll be using floating point math rather than assembly, so it'll be much slower...
+// ...but hopefully still faster than the FFT algos.
+// Note this function assumes your input data is in fht_input (provided by the fht library).
+// It only does ONE frequency point...so you can embed it in a display function for better
+// efficiency.  If you want to do the whole frequency array, use "glenn_populate_freq" below.
+int glenn_mag_calc(int bin)
+{
+  float sum_real_imag=0;
+  float diff_real_imag=0;
+  float result;
+  int   intMag;
+
+  // The FHT algos use the input array as it's output scratchpad.
+  // Bins 0 through N/2 are the sums of the real and imaginary parts.
+  // Bins N to N/2 are the differences, but note that it's reflected from the beginning.
+
+  sum_real_imag = fht_input[bin];
+
+  if (bin) diff_real_imag = fht_input[FHT_N - bin];
+
+  result = (sum_real_imag * sum_real_imag) + (diff_real_imag * diff_real_imag);
+
+  result = sqrt(result);
+  result = result + 0.5;  // rounding
+
+  intMag = result;
+  
+  return intMag;
+
+}
+
+// Populates the passed output array of frequency bins with the magitude of our FHT calc.
+void glenn_populate_freq( int freq_array[], int num_freq_bins )
+{
+  int i;
+
+  for (i = 0; i < num_freq_bins; i++)
+  {
+    freq_array[i] = glenn_mag_calc(i);
+  }
 }
 
 void setup() 
@@ -87,7 +135,7 @@ void print_time_samples( unsigned long sample_time )
   }
 }
 
-void print_freq( float freq_range_hz )
+void print_freq( float freq_range_hz, int freq_array[], int num_freq_bins )
 {
   int i;
   float bin=0.0;
@@ -99,11 +147,11 @@ void print_freq( float freq_range_hz )
   Serial.print(freq_range_hz);
   Serial.println(" Hz wide)");
   
-  for (i=0; i< FREQ_BINS; i++)
+  for (i=0; i< num_freq_bins; i++)
   {
     Serial.print(bin);
     Serial.print(" Hz = ");
-    Serial.println(fht_lin_out[i]);
+    Serial.println(freq_array[i]);
     bin = bin + hz_per_bin;
   }
   Serial.println("=========");
@@ -139,7 +187,7 @@ void loop()
 
   // ...and display the results.
   print_time_samples(sample_time_us);
-  print_freq(freq_range_hz);
+  print_freq(freq_range_hz, freq_peaks, FREQ_BINS);
 
   Serial.print("Time to do the xform (us): ");
   Serial.println(end_xform_time - start_xform_time);
