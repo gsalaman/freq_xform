@@ -116,6 +116,8 @@ void loop()
   float         freq_range_hz;
   unsigned long sample_time_us;
   int           dc_bias;
+  unsigned long start_xform_time;
+  unsigned long end_xform_time;
   
   sample_time_us = collect_samples();
 
@@ -131,11 +133,16 @@ void loop()
   freq_range_hz = 1000000.0 /(2.0 * us_per_sample);
     
   // do the FHT to populate our frequency display
+  start_xform_time = micros();
   doFHT();
+  end_xform_time = micros();
 
   // ...and display the results.
   print_time_samples(sample_time_us);
   print_freq(freq_range_hz);
+
+  Serial.print("Time to do the xform (us): ");
+  Serial.println(end_xform_time - start_xform_time);
 
   // wait for a key for next iteration through the loop
   Serial.println("hit enter for next sample collection");
