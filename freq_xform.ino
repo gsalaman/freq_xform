@@ -1,15 +1,14 @@
 // Simple Frequency Transform example.
 
-// FHT defines.  This library defines an input buffer for us called fht_input of signed integers.  
-#define LIN_OUT 1
-#define FHT_N   32
-#include <FHT.h>
+#include "arduinoFFT.h"
+
+arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
 
 //  We're using A5 as our audio input pin.
 #define AUDIO_PIN A5
 
 // These are the raw samples from the audio input.
-#define SAMPLE_SIZE FHT_N
+#define SAMPLE_SIZE 64
 int sample[SAMPLE_SIZE] = {0};
 
 //  Audio samples from the ADC are "centered" around 2.5v, which maps to 512 on the ADC.
@@ -18,6 +17,9 @@ int sample[SAMPLE_SIZE] = {0};
 // We have half the number of frequency bins as samples.
 #define FREQ_BINS (SAMPLE_SIZE/2)
 
+// These are the input and output vectors for the FFT.
+double vReal[SAMPLE_SIZE];
+double vImag[SAMPLE_SIZE];
 // This function fills our buffer with audio samples.
 unsigned long collect_samples( void )
 {
@@ -53,16 +55,15 @@ void doFHT( void )
     temp_sample = sample[i] - SAMPLE_BIAS;
 
     // Load the sample into the input array
-    fht_input[i] = temp_sample;
+    vReal[i] = temp_sample;
+    vImag[i] = 0;
     
   }
   
-  fht_window();
-  fht_reorder();
-  fht_run();
-
-  // Their lin mag functons corrupt memory!!!  Gonna try this for the 32 point one...we may be okay.
-  fht_mag_lin();  
+  FFT.Windowing(vReal, SAMPLE_SIZE, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  FFT.Compute(vReal, vImag, SAMPLE_SIZE, FFT_FORWARD);
+  FFT.ComplexToMagnitude(vReal, vImag, SAMPLE_SIZE);
+ 
 }
 
 void setup() 
@@ -103,7 +104,7 @@ void print_freq( float freq_range_hz )
   {
     Serial.print(bin);
     Serial.print(" Hz = ");
-    Serial.println(fht_lin_out[i]);
+    Serial.println(vReal[i]);
     bin = bin + hz_per_bin;
   }
   Serial.println("=========");
