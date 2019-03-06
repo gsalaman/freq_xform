@@ -1,4 +1,18 @@
-// Simple Frequency Transform example.
+// Converting Teensy to use standard audio out and old FFT.
+//
+// 1st experiment:  looks like plain old analogRead takes about 10us...fast enough.
+// 256 pt FFT takes ~27 ms...a little slower than I want.
+// 128 takes 12ms...closer.
+// 64 takes about 6.  Disco!
+//
+// Ideally, I want 21 frequency bins, going to about 3 KHz.
+// 64 points would give us 32 bins...11 more than I need...but not too bad.
+// Doing 150 Hz/bin (times 21) gives me a little over 3 KHz range...meaning I want to sample at about 6 KHz, or about 167us. 
+// Doing an ugly 150us delay between samples gets me close.
+//
+// Next issue:  we've got a significant DC bias in our samples...probably because arduino voltage ref is 1.1v rather than 1.15 (3.3/2)
+// Just changing the constant.
+
 
 #include "arduinoFFT.h"
 
@@ -8,10 +22,9 @@ arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
 #define AUDIO_PIN A2
 
 // These are the raw samples from the audio input.
-#define SAMPLE_SIZE 256
+#define SAMPLE_SIZE 64
 int sample[SAMPLE_SIZE] = {0};
 
-//  Audio samples from the ADC are "centered" around 2.5v, which maps to 512 on the ADC.
 #define SAMPLE_BIAS 512
 
 // We have half the number of frequency bins as samples.
@@ -32,6 +45,9 @@ unsigned long collect_samples( void )
   for (i = 0; i < SAMPLE_SIZE; i++)
   {
     sample[i] = analogRead(AUDIO_PIN);
+
+    // Here's my ugly blocking delay.
+    delayMicroseconds(150);
   }
 
   end_time = micros();
@@ -41,9 +57,7 @@ unsigned long collect_samples( void )
 }
 
 // This function does the FFT to convert the time-based samples (in the sample[] array)
-// to frequency bins.  The FFT library defines an array (fht_input[]) where we put our 
-// input values.  After doing it's processing, fht_input will contain raw output values...
-// we can use fht_lin_out() to convert those to magnitudes.
+// to frequency bins.  
 void doFFT( void )
 {
   int i;
