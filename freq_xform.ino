@@ -4,11 +4,11 @@
 
 arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
 
-//  We're using A5 as our audio input pin.
-#define AUDIO_PIN A5
+//  We're using A2 as our audio input pin.
+#define AUDIO_PIN A2
 
 // These are the raw samples from the audio input.
-#define SAMPLE_SIZE 64
+#define SAMPLE_SIZE 256
 int sample[SAMPLE_SIZE] = {0};
 
 //  Audio samples from the ADC are "centered" around 2.5v, which maps to 512 on the ADC.
@@ -40,11 +40,11 @@ unsigned long collect_samples( void )
   
 }
 
-// This function does the FHT to convert the time-based samples (in the sample[] array)
-// to frequency bins.  The FHT library defines an array (fht_input[]) where we put our 
+// This function does the FFT to convert the time-based samples (in the sample[] array)
+// to frequency bins.  The FFT library defines an array (fht_input[]) where we put our 
 // input values.  After doing it's processing, fht_input will contain raw output values...
 // we can use fht_lin_out() to convert those to magnitudes.
-void doFHT( void )
+void doFFT( void )
 {
   int i;
   int temp_sample;
@@ -135,7 +135,7 @@ void loop()
     
   // do the FHT to populate our frequency display
   start_xform_time = micros();
-  doFHT();
+  doFFT();
   end_xform_time = micros();
 
   // ...and display the results.
