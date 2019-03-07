@@ -13,16 +13,34 @@
 // Next issue:  we've got a significant DC bias in our samples...probably because arduino voltage ref is 1.1v rather than 1.15 (3.3/2)
 // Just changing the constant.
 
+#include <SmartLEDShieldV4.h>  // comment out this line for if you're not using SmartLED Shield V4 hardware (this line needs to be before #include <SmartMatrix3.h>)
+#include <SmartMatrix3.h>
+#include <FastLED.h>
+
+#define COLOR_DEPTH 24                  // known working: 24, 48 - If the sketch uses type `rgb24` directly, COLOR_DEPTH must be 24
+const uint8_t kMatrixWidth = 64;        // known working: 32, 64, 96, 128
+const uint8_t kMatrixHeight = 32;       // known working: 16, 32, 48, 64
+const uint8_t kRefreshDepth = 36;       // known working: 24, 36, 48
+const uint8_t kDmaBufferRows = 4;       // known working: 2-4, use 2 to save memory, more to keep from dropping frames and automatically lowering refresh rate
+const uint8_t kPanelType = SMARTMATRIX_HUB75_32ROW_MOD16SCAN; // use SMARTMATRIX_HUB75_16ROW_MOD8SCAN for common 16x32 panels, or use SMARTMATRIX_HUB75_64ROW_MOD32SCAN for common 64x64 panels
+const uint8_t kMatrixOptions = (SMARTMATRIX_OPTIONS_NONE);      // see http://docs.pixelmatix.com/SmartMatrix for options
+const uint8_t kBackgroundLayerOptions = (SM_BACKGROUND_OPTIONS_NONE);
+
+SMARTMATRIX_ALLOCATE_BUFFERS(matrix, kMatrixWidth, kMatrixHeight, kRefreshDepth, kDmaBufferRows, kPanelType, kMatrixOptions);
+SMARTMATRIX_ALLOCATE_BACKGROUND_LAYER(backgroundLayer, kMatrixWidth, kMatrixHeight, COLOR_DEPTH, kBackgroundLayerOptions);
+
 
 #include "arduinoFFT.h"
 
 arduinoFFT FFT = arduinoFFT(); /* Create FFT object */
 
+CRGB palette[21];
+
 //  We're using A2 as our audio input pin.
 #define AUDIO_PIN A2
 
 // These are the raw samples from the audio input.
-#define SAMPLE_SIZE 64
+#define SAMPLE_SIZE 128
 int sample[SAMPLE_SIZE] = {0};
 
 #define SAMPLE_BIAS 512
@@ -33,6 +51,16 @@ int sample[SAMPLE_SIZE] = {0};
 // These are the input and output vectors for the FFT.
 double vReal[SAMPLE_SIZE];
 double vImag[SAMPLE_SIZE];
+
+#define MAX_FREQ_MAG 200
+
+void init_palette( void )
+{
+  fill_gradient_RGB(palette, 7, CRGB::Purple, CRGB::Blue);
+  fill_gradient_RGB(&(palette[7]), 7, CRGB::Green, CRGB::Yellow);
+  fill_gradient_RGB(&(palette[14]),7, CRGB::Yellow, CRGB::Red);
+}
+
 // This function fills our buffer with audio samples.
 unsigned long collect_samples( void )
 {
@@ -47,7 +75,7 @@ unsigned long collect_samples( void )
     sample[i] = analogRead(AUDIO_PIN);
 
     // Here's my ugly blocking delay.
-    delayMicroseconds(150);
+    delayMicroseconds(30);
   }
 
   end_time = micros();
@@ -83,6 +111,15 @@ void doFFT( void )
 void setup() 
 {
   Serial.begin(9600);  
+  
+  init_palette();
+  
+  // Initialize Matrix
+  matrix.addLayer(&backgroundLayer); 
+  matrix.begin();
+
+  matrix.setBrightness(255);
+
 }
 
 void print_time_samples( unsigned long sample_time )
@@ -124,44 +161,36 @@ void print_freq( float freq_range_hz )
   Serial.println("=========");
 }
 
+void display_freq_raw( void )
+{
+  int i;
+  int mag;
+  int bin;
+  int x;
+  rgb24 color = {0xFF, 0, 0};
+  rgb24 black = {0,0,0};
+
+  backgroundLayer.fillScreen(black);
+
+  for (i = 0; i < 21; i++)
+  {
+    mag = constrain(vReal[i], 0, MAX_FREQ_MAG);
+    mag = map(mag, 0, MAX_FREQ_MAG, 0, 31);
+
+    x = i*3;
+
+    backgroundLayer.drawRectangle(x, 32, x+2, 31-mag, palette[i]);
+  }
+  backgroundLayer.swapBuffers();
+  
+}
+
 void loop() 
 {
-  float         hz_per_bin;
-  float         us_per_sample;
-  float         freq_range_hz;
-  unsigned long sample_time_us;
-  int           dc_bias;
-  unsigned long start_xform_time;
-  unsigned long end_xform_time;
-  
-  sample_time_us = collect_samples();
+  collect_samples();
 
-  us_per_sample = (float) sample_time_us / SAMPLE_SIZE;
-
-  // The frequency transform below takes our samples and outputs them in an array of "frequency bins".
-  // This array is half the size of our input sample rate, so for 32 samples, we have 16 bins.
-  // These bins range from 0 Hz to half of our sample rate (Nyquist's theorm).
-  // We're going to calculate that range and the bin size next.
-
-  //  us_per_sample is in microseconds (10^-6).  Move that 10^-6 to the numerator, and you get the 1000000.
-  //  The 2.0 in the denominator is because our range is half the sample rate.
-  freq_range_hz = 1000000.0 /(2.0 * us_per_sample);
-    
-  // do the FHT to populate our frequency display
-  start_xform_time = micros();
   doFFT();
-  end_xform_time = micros();
 
-  // ...and display the results.
-  print_time_samples(sample_time_us);
-  print_freq(freq_range_hz);
-
-  Serial.print("Time to do the xform (us): ");
-  Serial.println(end_xform_time - start_xform_time);
-
-  // wait for a key for next iteration through the loop
-  Serial.println("hit enter for next sample collection");
-  while (!Serial.available());
-  while (Serial.available()) Serial.read();
+  display_freq_raw();
   
 }
