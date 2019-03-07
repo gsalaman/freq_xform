@@ -90,6 +90,8 @@ double vImag[SAMPLE_SIZE];
 
 int freq_gain = 200;
 
+int freq_hist[SAMPLE_SIZE/2] = {0};
+
 void init_palette( void )
 {
   fill_gradient_RGB(palette, 7, CRGB::Purple, CRGB::Blue);
@@ -111,7 +113,7 @@ unsigned long collect_samples( void )
     sample[i] = analogRead(AUDIO_PIN);
 
     // Here's my ugly blocking delay.
-    delayMicroseconds(30);
+    delayMicroseconds(5);
   }
 
   end_time = micros();
@@ -223,6 +225,41 @@ void display_freq_raw( void )
   
 }
 
+void display_freq_decay( void )
+{
+  int i;
+  int mag;
+  int bin;
+  int x;
+  rgb24 color = {0xFF, 0, 0};
+  rgb24 black = {0,0,0};
+
+  backgroundLayer.fillScreen(black);
+
+  for (i = 0; i < 21; i++)
+  {
+    mag = constrain(vReal[i], 0, freq_gain);
+    mag = map(mag, 0, freq_gain, 0, 31);
+
+    // check if current magnitude is smaller than our recent history.
+    if (mag < freq_hist[i])
+    {
+      mag = freq_hist[i] - 1;
+    }
+
+    // store new value...either new max or "decayed" value
+    freq_hist[i] = mag;
+
+    x = i*3;
+
+    backgroundLayer.drawRectangle(x, 32, x+2, 31-mag, palette[i]);
+  }
+  
+  backgroundLayer.swapBuffers();
+  
+}
+
+
 #define TOUCH_GAIN 4
 void update_gain( void )
 {
@@ -263,6 +300,6 @@ void loop()
 
   doFFT();
 
-  display_freq_raw();
+  display_freq_decay();
   
 }
