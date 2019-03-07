@@ -2,7 +2,7 @@
 //
 // 1st experiment:  looks like plain old analogRead takes about 10us...fast enough.
 // 256 pt FFT takes ~27 ms...a little slower than I want.
-// 128 takes 12ms...closer.
+// 128 takes 12ms...workable
 // 64 takes about 6.  Disco!
 //
 // Ideally, I want 21 frequency bins, going to about 3 KHz.
@@ -12,6 +12,41 @@
 //
 // Next issue:  we've got a significant DC bias in our samples...probably because arduino voltage ref is 1.1v rather than 1.15 (3.3/2)
 // Just changing the constant.
+
+// PINS USED:
+//    Analog input:  A2 (16)
+//
+//    For touch sensor:  
+//      18 SDA
+//      19 SCL
+//
+//    For matrix:
+//      R0  2
+//      G0  5
+//      B0  6
+//      R1  21
+//      G1  7
+//      B1  20
+//      A0  15
+//      A1  22
+//      A2  23
+//      A3  9
+//      Clk  14
+//      Stb  3,8
+//      OE   4
+
+// Touchpot uses I2C
+#include "Wire.h"
+
+/* Touchpot Register definitions
+/* see http://danjuliodesigns.com/products/touch_pot/assets/touch_pot_sf_1_4.pdf */
+#define TOUCHPOT_VERSION       0   // Read only
+#define TOUCHPOT_CUR_POT_VALUE 1   // RW, Current poteniometer value
+#define TOUCHPOT_STATUS        2   // Read only, Device Status
+#define TOUCHPOT_CONTROL       3   // RW, device configuration
+#define TOUCHPOT_USER_LED      4   // RW, user set led value.
+
+int i2cAddr = 8; // Direct access at i2cAddr, indirect registers at i2cAddr+1
 
 #include <SmartLEDShieldV4.h>  // comment out this line for if you're not using SmartLED Shield V4 hardware (this line needs to be before #include <SmartMatrix3.h>)
 #include <SmartMatrix3.h>
@@ -25,10 +60,11 @@ const uint8_t kDmaBufferRows = 4;       // known working: 2-4, use 2 to save mem
 const uint8_t kPanelType = SMARTMATRIX_HUB75_32ROW_MOD16SCAN; // use SMARTMATRIX_HUB75_16ROW_MOD8SCAN for common 16x32 panels, or use SMARTMATRIX_HUB75_64ROW_MOD32SCAN for common 64x64 panels
 const uint8_t kMatrixOptions = (SMARTMATRIX_OPTIONS_NONE);      // see http://docs.pixelmatix.com/SmartMatrix for options
 const uint8_t kBackgroundLayerOptions = (SM_BACKGROUND_OPTIONS_NONE);
+const uint8_t kScrollingLayerOptions = (SM_SCROLLING_OPTIONS_NONE);
 
 SMARTMATRIX_ALLOCATE_BUFFERS(matrix, kMatrixWidth, kMatrixHeight, kRefreshDepth, kDmaBufferRows, kPanelType, kMatrixOptions);
 SMARTMATRIX_ALLOCATE_BACKGROUND_LAYER(backgroundLayer, kMatrixWidth, kMatrixHeight, COLOR_DEPTH, kBackgroundLayerOptions);
-
+SMARTMATRIX_ALLOCATE_SCROLLING_LAYER(scrollingLayer, kMatrixWidth, kMatrixHeight, COLOR_DEPTH, kScrollingLayerOptions);
 
 #include "arduinoFFT.h"
 
@@ -52,7 +88,7 @@ int sample[SAMPLE_SIZE] = {0};
 double vReal[SAMPLE_SIZE];
 double vImag[SAMPLE_SIZE];
 
-#define MAX_FREQ_MAG 200
+int freq_gain = 200;
 
 void init_palette( void )
 {
@@ -111,11 +147,13 @@ void doFFT( void )
 void setup() 
 {
   Serial.begin(9600);  
+  Wire.begin();
   
   init_palette();
   
   // Initialize Matrix
   matrix.addLayer(&backgroundLayer); 
+  matrix.addLayer(&scrollingLayer);
   matrix.begin();
 
   matrix.setBrightness(255);
@@ -174,8 +212,8 @@ void display_freq_raw( void )
 
   for (i = 0; i < 21; i++)
   {
-    mag = constrain(vReal[i], 0, MAX_FREQ_MAG);
-    mag = map(mag, 0, MAX_FREQ_MAG, 0, 31);
+    mag = constrain(vReal[i], 0, freq_gain);
+    mag = map(mag, 0, freq_gain, 0, 31);
 
     x = i*3;
 
@@ -185,8 +223,42 @@ void display_freq_raw( void )
   
 }
 
+#define TOUCH_GAIN 4
+void update_gain( void )
+{
+  char gain_string[10];
+  
+  uint8_t touchpot_val;
+  
+  Wire.requestFrom(i2cAddr, TOUCHPOT_CUR_POT_VALUE);
+
+  if (Wire.available())
+  {
+    touchpot_val = Wire.read();
+  }
+  else
+  {
+    touchpot_val = 0;
+  }
+
+  freq_gain = (int) touchpot_val * TOUCH_GAIN;
+
+  scrollingLayer.setColor({0xff,0,0});
+  scrollingLayer.setMode(stopped);
+  scrollingLayer.setSpeed(40);
+  scrollingLayer.setFont(font6x10);
+  scrollingLayer.setStartOffsetFromLeft(36);
+  sprintf(gain_string, "%d", freq_gain);
+  scrollingLayer.start(gain_string, -1);
+  
+}
+
+
 void loop() 
 {
+
+  update_gain();
+
   collect_samples();
 
   doFFT();
