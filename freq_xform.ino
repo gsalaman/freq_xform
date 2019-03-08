@@ -53,7 +53,7 @@ int i2cAddr = 8; // Direct access at i2cAddr, indirect registers at i2cAddr+1
 #include <FastLED.h>
 
 #define COLOR_DEPTH 24                  // known working: 24, 48 - If the sketch uses type `rgb24` directly, COLOR_DEPTH must be 24
-const uint8_t kMatrixWidth = 64;        // known working: 32, 64, 96, 128
+const uint8_t kMatrixWidth = 128;       // known working: 32, 64, 96, 128
 const uint8_t kMatrixHeight = 32;       // known working: 16, 32, 48, 64
 const uint8_t kRefreshDepth = 36;       // known working: 24, 36, 48
 const uint8_t kDmaBufferRows = 4;       // known working: 2-4, use 2 to save memory, more to keep from dropping frames and automatically lowering refresh rate
@@ -236,7 +236,7 @@ void display_freq_decay( void )
 
   backgroundLayer.fillScreen(black);
 
-  for (i = 0; i < 21; i++)
+  for (i = 0; i < 42; i++)
   {
     mag = constrain(vReal[i], 0, freq_gain);
     mag = map(mag, 0, freq_gain, 0, 31);
@@ -252,7 +252,7 @@ void display_freq_decay( void )
 
     x = i*3;
 
-    backgroundLayer.drawRectangle(x, 32, x+2, 31-mag, palette[i]);
+    backgroundLayer.drawRectangle(x, 32, x+2, 31-mag, palette[i%21]);
   }
   
   backgroundLayer.swapBuffers();
